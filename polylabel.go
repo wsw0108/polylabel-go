@@ -1,4 +1,4 @@
-package main
+package polylabel
 
 import (
     "math"
@@ -27,7 +27,7 @@ func NewCellItem(cell *Cell) *Item {
     return &Item{cell, cell.d, 0}
 }
 
-func polylabel(polygon Polygon, precision float64) (float64, float64){
+func Polylabel(polygon Polygon, precision float64) (float64, float64){
     minX, minY, maxX, maxY := boundingBox(polygon)
     
     width := maxX - minX

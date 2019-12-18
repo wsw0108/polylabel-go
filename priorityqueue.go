@@ -1,4 +1,4 @@
-package main
+package polylabel
 
 import "container/heap"
 
