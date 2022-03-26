@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/paulmach/orb"
+	"github.com/tidwall/geojson/geometry"
 )
 
 func AssertEqual(t *testing.T, a interface{}, b interface{}) {
@@ -17,7 +17,11 @@ func AssertEqual(t *testing.T, a interface{}, b interface{}) {
 	t.Errorf("Received %v (type %v), expected %v (type %v)", a, reflect.TypeOf(a), b, reflect.TypeOf(b))
 }
 
-func loadData(filename string) (polygon orb.Polygon) {
+type Point [2]float64
+type Ring []Point
+type Polygon []Ring
+
+func loadData(filename string) (polygon *geometry.Poly) {
 	jsonFile, err := os.Open(filename)
 	if err != nil {
 		panic("failed to open json file")
@@ -26,12 +30,28 @@ func loadData(filename string) (polygon orb.Polygon) {
 
 	byteValue, _ := ioutil.ReadAll(jsonFile)
 
-	err = json.Unmarshal(byteValue, &polygon)
+	var poly Polygon
+	err = json.Unmarshal(byteValue, &poly)
 	if err != nil {
 		panic("failed to parse json file")
 	}
 
-	return polygon
+	var shell []geometry.Point
+	var holes [][]geometry.Point
+	for i, ring := range poly {
+		var points []geometry.Point
+		for _, p := range ring {
+			points = append(points, geometry.Point{X: p[0], Y: p[1]})
+		}
+		if i == 0 {
+			shell = points
+		} else {
+			holes = append(holes, points)
+		}
+	}
+	polygon = geometry.NewPoly(shell, holes, nil)
+
+	return
 }
 
 func TestPolylabelWater1(t *testing.T) {
@@ -58,13 +78,17 @@ func TestPolylabelWater2(t *testing.T) {
 func TestDegeneratePolygons(t *testing.T) {
 	var x, y float64
 
-	polygon := orb.Polygon{orb.Ring{orb.Point{0, 0}, orb.Point{1, 0}, orb.Point{2, 0}, orb.Point{0, 0}}}
-	x, y = Polylabel(polygon, 1.0)
-	AssertEqual(t, x, 0.0)
-	AssertEqual(t, y, 0.0)
+	{
+		polygon := geometry.NewPoly([]geometry.Point{{X: 0, Y: 0}, {X: 1, Y: 0}, {X: 2, Y: 0}, {X: 0, Y: 0}}, nil, nil)
+		x, y = Polylabel(polygon, 1.0)
+		AssertEqual(t, x, 0.0)
+		AssertEqual(t, y, 0.0)
+	}
 
-	polygon = orb.Polygon{orb.Ring{orb.Point{0, 0}, orb.Point{1, 0}, orb.Point{1, 1}, orb.Point{1, 0}, orb.Point{0, 0}}}
-	x, y = Polylabel(polygon, 1.0)
-	AssertEqual(t, x, 0.0)
-	AssertEqual(t, y, 0.0)
+	{
+		polygon := geometry.NewPoly([]geometry.Point{{X: 0, Y: 0}, {X: 1, Y: 0}, {X: 1, Y: 1}, {X: 1, Y: 0}, {X: 0, Y: 0}}, nil, nil)
+		x, y = Polylabel(polygon, 1.0)
+		AssertEqual(t, x, 0.0)
+		AssertEqual(t, y, 0.0)
+	}
 }

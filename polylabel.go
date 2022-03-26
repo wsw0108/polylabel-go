@@ -4,7 +4,7 @@ import (
 	"container/heap"
 	"math"
 
-	"github.com/paulmach/orb"
+	"github.com/tidwall/geojson/geometry"
 )
 
 type Cell struct {
@@ -15,7 +15,7 @@ type Cell struct {
 	max float64
 }
 
-func NewCell(x float64, y float64, h float64, polygon orb.Polygon) *Cell {
+func NewCell(x float64, y float64, h float64, polygon *geometry.Poly) *Cell {
 	d := pointToPolygonDistance(x, y, polygon)
 	cell := Cell{x, y, h, d, d + h*math.Sqrt2}
 	return &cell
@@ -25,7 +25,7 @@ func NewCellItem(cell *Cell) *Item {
 	return &Item{cell, cell.d, 0}
 }
 
-func Polylabel(polygon orb.Polygon, precision float64) (float64, float64) {
+func Polylabel(polygon *geometry.Poly, precision float64) (float64, float64) {
 	minX, minY, maxX, maxY := boundingBox(polygon)
 
 	width := maxX - minX
@@ -81,42 +81,31 @@ func Polylabel(polygon orb.Polygon, precision float64) (float64, float64) {
 	return bestCell.x, bestCell.y
 }
 
-func boundingBox(polygon orb.Polygon) (minX float64, minY float64, maxX float64, maxY float64) {
-	coords := polygon[0]
-	minX, minY = coords[0][0], coords[0][1]
-	maxX, maxY = coords[0][0], coords[0][1]
-	for _, coord := range coords {
-		x, y := coord[0], coord[1]
-		if x < minX {
-			minX = x
-		}
-		if x > maxX {
-			maxX = x
-		}
-		if y < minY {
-			minY = y
-		}
-		if y > maxY {
-			maxY = y
-		}
-	}
+func boundingBox(polygon *geometry.Poly) (minX float64, minY float64, maxX float64, maxY float64) {
+	rect := polygon.Rect()
+	minX, minY, maxX, maxY = rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y
 	return
 }
 
 // signed distance from point to polygon outline (negative if point is outside)
-func pointToPolygonDistance(x float64, y float64, polygon orb.Polygon) float64 {
+func pointToPolygonDistance(x float64, y float64, polygon *geometry.Poly) float64 {
 	inside := false
 	minDistSq := math.Inf(1)
 
-	for _, ring := range polygon {
-		for n := 0; n < (len(ring) - 1); n++ {
-			a := ring[n]
-			b := ring[n+1]
-			if ((a[1] > y) != (b[1] > y)) && (x < ((b[0]-a[0])*(y-a[1])/(b[1]-a[1]) + a[0])) {
+	fn := func(ring geometry.Ring) {
+		for n := 0; n < (ring.NumPoints() - 1); n++ {
+			a := ring.PointAt(n)
+			b := ring.PointAt(n + 1)
+			if ((a.Y > y) != (b.Y > y)) && (x < ((b.X-a.X)*(y-a.Y)/(b.Y-a.Y) + a.X)) {
 				inside = !inside
 			}
 			minDistSq = math.Min(minDistSq, segmentDistanceSquared(x, y, a, b))
 		}
+	}
+
+	fn(polygon.Exterior)
+	for _, hole := range polygon.Holes {
+		fn(hole)
 	}
 
 	factor := 1.0
@@ -127,37 +116,38 @@ func pointToPolygonDistance(x float64, y float64, polygon orb.Polygon) float64 {
 }
 
 // get polygon centroid
-func getCentroidCell(polygon orb.Polygon) *Cell {
+func getCentroidCell(polygon *geometry.Poly) *Cell {
 	area := 0.0
 	x := 0.0
 	y := 0.0
-	ring := polygon[0]
-	for n := 0; n < (len(ring) - 1); n++ {
-		a := ring[n]
-		b := ring[n+1]
-		f := a[0]*b[1] - b[0]*a[1]
-		x += (a[0] + b[0]) * f
-		y += (a[1] + b[1]) * f
+	ring := polygon.Exterior
+	for n := 0; n < ring.NumPoints()-1; n++ {
+		a := ring.PointAt(n)
+		b := ring.PointAt(n + 1)
+		f := a.X*b.Y - b.X*a.Y
+		x += (a.X + b.X) * f
+		y += (a.Y + b.Y) * f
 		area += f * 3
 	}
 	if area == 0 {
-		return NewCell(ring[0][0], ring[0][1], 0, polygon)
+		p := ring.PointAt(0)
+		return NewCell(p.X, p.Y, 0, polygon)
 	}
 	return NewCell(x/area, y/area, 0, polygon)
 }
 
 // get squared distance from a point to a segment
-func segmentDistanceSquared(px float64, py float64, a [2]float64, b [2]float64) float64 {
-	x := a[0]
-	y := a[1]
-	dx := b[0] - x
-	dy := b[1] - y
+func segmentDistanceSquared(px float64, py float64, a, b geometry.Point) float64 {
+	x := a.X
+	y := a.Y
+	dx := b.X - x
+	dy := b.Y - y
 
 	if dx != 0 || dy != 0 {
 		t := ((px-x)*dx + (py-y)*dy) / (dx*dx + dy*dy)
 		if t > 1 {
-			x = b[0]
-			y = b[1]
+			x = b.X
+			y = b.Y
 		} else if t > 0 {
 			x += dx * t
 			y += dy * t
